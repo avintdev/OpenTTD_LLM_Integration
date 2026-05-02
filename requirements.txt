@@ -1,0 +1,7 @@
+# Python bridge runtime dependencies.
+# The Squirrel AI/GameScript code is loaded by OpenTTD and has no pip deps.
+requests>=2.31.0
+pyOpenTTDAdmin>=1.0.4
+
+# Optional native Gemini mode:
+# google-genai>=1.0.0

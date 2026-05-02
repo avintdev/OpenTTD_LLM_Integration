@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv
+env/
+venv/
+
+# Secrets and local credentials
+secrets.py
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cert
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+*.jsonl
+*.sqlite
+*.sqlite3
+*.db
+*.db3
+
+# Runtime dashboard/session output
+web/*.json
+web/sessions/
+
+# Local vendoring workspace
+external_src/

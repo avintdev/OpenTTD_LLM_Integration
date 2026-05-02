@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SquirrelAI Session Dashboard</title>
+    <style>
+        :root {
+            --bg: #0f1115;
+            --panel: #1a1f2b;
+            --panel-alt: #121724;
+            --text: #e8edf7;
+            --muted: #9dadc8;
+            --accent: #38bdf8;
+            --ok: #22c55e;
+            --warn: #f59e0b;
+            --err: #ef4444;
+            --border: #2f3b55;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Avenir Next", "Segoe UI", Tahoma, sans-serif;
+            background:
+                radial-gradient(circle at 15% 20%, #172139 0%, transparent 45%),
+                radial-gradient(circle at 80% 0%, #1c253f 0%, transparent 55%),
+                var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 1.25rem;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .title-wrap h1 {
+            margin: 0;
+            font-size: 1.7rem;
+            letter-spacing: 0.03em;
+        }
+
+        .title-wrap p {
+            margin: 0.3rem 0 0 0;
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 0.6rem;
+            align-items: center;
+        }
+
+        button, input, select {
+            border: 1px solid var(--border);
+            background: var(--panel-alt);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 0.45rem 0.65rem;
+            font-size: 0.9rem;
+        }
+
+        button {
+            cursor: pointer;
+            background: #1f2b44;
+        }
+
+        button:hover {
+            background: #2b3d63;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1.1fr 0.9fr;
+            gap: 1rem;
+        }
+
+        .card {
+            background: linear-gradient(165deg, var(--panel), var(--panel-alt));
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 1rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+        }
+
+        .card h2 {
+            margin: 0 0 0.65rem 0;
+            font-size: 1rem;
+            color: #d7e3fb;
+            letter-spacing: 0.02em;
+        }
+
+        .status-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            border-radius: 999px;
+            padding: 0.35rem 0.75rem;
+            font-weight: 700;
+            border: 1px solid transparent;
+            margin-bottom: 0.7rem;
+        }
+
+        .chip-idle, .chip-waiting, .chip-connected, .chip-standalone {
+            background: rgba(56, 189, 248, 0.15);
+            border-color: rgba(56, 189, 248, 0.4);
+            color: #7dd3fc;
+        }
+
+        .chip-processing, .chip-dispatching {
+            background: rgba(245, 158, 11, 0.15);
+            border-color: rgba(245, 158, 11, 0.45);
+            color: #fbbf24;
+        }
+
+        .chip-error, .chip-timeout {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: rgba(239, 68, 68, 0.45);
+            color: #fca5a5;
+        }
+
+        .status-meta {
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.45;
+        }
+
+        .settings-form {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 0.6rem;
+        }
+
+        .settings-row {
+            display: grid;
+            grid-template-columns: 170px 1fr;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .settings-row label {
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        .settings-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.5rem;
+            margin-top: 0.4rem;
+        }
+
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(120px, 1fr));
+            gap: 0.6rem;
+            margin-bottom: 0.8rem;
+        }
+
+        .metric {
+            background: rgba(13, 17, 27, 0.65);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 0.65rem;
+        }
+
+        .metric .label {
+            color: var(--muted);
+            font-size: 0.8rem;
+            margin-bottom: 0.2rem;
+        }
+
+        .metric .value {
+            font-size: 1.2rem;
+            font-weight: 800;
+        }
+
+        .bars {
+            display: grid;
+            gap: 0.45rem;
+        }
+
+        .bar-row {
+            display: grid;
+            grid-template-columns: 120px 1fr 52px;
+            gap: 0.5rem;
+            align-items: center;
+            font-size: 0.85rem;
+        }
+
+        .bar-track {
+            height: 10px;
+            background: #121a2d;
+            border: 1px solid #2c3a58;
+            border-radius: 999px;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            width: 0%;
+            transition: width 250ms ease;
+        }
+
+        .fill-ok { background: linear-gradient(90deg, #16a34a, #22c55e); }
+        .fill-err { background: linear-gradient(90deg, #dc2626, #ef4444); }
+        .fill-warn { background: linear-gradient(90deg, #d97706, #f59e0b); }
+        .fill-info { background: linear-gradient(90deg, #0284c7, #38bdf8); }
+
+        .sessions-row {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 0.6rem;
+            align-items: center;
+            margin-bottom: 0.8rem;
+        }
+
+        .logs {
+            margin-top: 1rem;
+            display: grid;
+            gap: 0.7rem;
+        }
+
+        .error-grid {
+            margin-top: 1rem;
+            display: grid;
+            gap: 0.7rem;
+        }
+
+        .error-item {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: rgba(10, 14, 22, 0.82);
+            overflow: hidden;
+        }
+
+        .error-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.7rem;
+            padding: 0.6rem 0.75rem;
+            background: rgba(43, 47, 68, 0.68);
+            font-size: 0.84rem;
+            color: var(--muted);
+        }
+
+        .error-body {
+            padding: 0.7rem;
+            display: grid;
+            gap: 0.6rem;
+        }
+
+        .error-row {
+            display: grid;
+            grid-template-columns: 1fr 150px;
+            gap: 0.6rem;
+            align-items: center;
+        }
+
+        .error-row .detail {
+            color: var(--text);
+            font-size: 0.88rem;
+            line-height: 1.4;
+        }
+
+        .log-item {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: rgba(10, 14, 22, 0.8);
+            overflow: hidden;
+        }
+
+        .log-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.7rem;
+            padding: 0.6rem 0.75rem;
+            background: rgba(30, 43, 68, 0.6);
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+
+        .log-body {
+            padding: 0.7rem;
+            display: grid;
+            gap: 0.6rem;
+            grid-template-columns: 1fr;
+        }
+
+        pre {
+            margin: 0;
+            background: #060913;
+            border: 1px solid #28334e;
+            border-radius: 8px;
+            color: #d3e0ff;
+            padding: 0.65rem;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            font-size: 0.78rem;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+
+        .empty {
+            color: var(--muted);
+            font-style: italic;
+        }
+
+        .footer-note {
+            margin-top: 0.8rem;
+            color: var(--muted);
+            font-size: 0.85rem;
+        }
+
+        @media (max-width: 1100px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .summary-cards {
+                grid-template-columns: repeat(2, minmax(120px, 1fr));
+            }
+
+            .settings-row {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="title-wrap">
+            <h1>SquirrelAI Session Dashboard</h1>
+            <p>Session-scoped observability, live runtime status, and LLM command reliability</p>
+        </div>
+        <div class="toolbar">
+            <label><input id="auto-refresh" type="checkbox" checked> Auto</label>
+            <button id="refresh-btn" type="button">Refresh</button>
+        </div>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h2>Live Runtime Monitor</h2>
+            <div id="status-chip" class="status-chip chip-idle">Waiting</div>
+            <div id="status-meta" class="status-meta">No status yet.</div>
+            <div class="footer-note">Status updates are emitted by outgoing and incoming LLM / command events.</div>
+        </div>
+
+        <div class="card">
+            <h2>Model Settings</h2>
+            <div class="settings-form">
+                <div class="settings-row">
+                    <label for="model-input">Model Name</label>
+                    <input id="model-input" type="text" placeholder="gemini-3-flash-preview">
+                </div>
+                <div class="settings-row">
+                    <label for="api-env-input">API Key Env Name</label>
+                    <input id="api-env-input" type="text" placeholder="GEMINI_API_KEY">
+                </div>
+                <div class="settings-actions">
+                    <button id="settings-reload" type="button">Reload</button>
+                    <button id="settings-save" type="button">Save</button>
+                </div>
+                <div id="settings-msg" class="status-meta"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top: 1rem;">
+        <h2>Session Summary</h2>
+        <div class="sessions-row">
+            <select id="session-select"></select>
+            <button id="jump-current" type="button">Current Session</button>
+        </div>
+
+        <div class="summary-cards">
+            <div class="metric"><div class="label">Commands</div><div id="metric-commands" class="value">0</div></div>
+            <div class="metric"><div class="label">Errors</div><div id="metric-errors" class="value">0</div></div>
+            <div class="metric"><div class="label">Success Rate</div><div id="metric-rate" class="value">0%</div></div>
+            <div class="metric"><div class="label">LLM Latency Avg</div><div id="metric-latency" class="value">0 ms</div></div>
+        </div>
+
+        <div class="bars" id="summary-bars"></div>
+    </div>
+
+    <div class="card" style="margin-top: 1rem;">
+        <h2>LLM Interactions</h2>
+        <div id="logs" class="logs"></div>
+    </div>
+
+    <div class="card" style="margin-top: 1rem;">
+        <h2>Session Error Catalog</h2>
+        <div class="sessions-row">
+            <div class="status-meta">Grouped by signature, with a separate append-only log in each session folder.</div>
+            <button id="error-save" type="button">Save Classifications</button>
+        </div>
+        <div id="errors" class="error-grid"></div>
+    </div>
+
+    <script>
+        const state = {
+            sessionsIndex: [],
+            selectedSessionId: null,
+            currentSessionId: null,
+            refreshTimer: null,
+            errorClassifications: {},
+        };
+
+        function esc(text) {
+            return (text ?? "").toString()
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/\"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function nowSuffix() {
+            return "?t=" + Date.now();
+        }
+
+        async function fetchJson(url, fallback) {
+            try {
+                const res = await fetch(url + nowSuffix(), { cache: "no-store" });
+                if (!res.ok) {
+                    return fallback;
+                }
+                return await res.json();
+            } catch {
+                return fallback;
+            }
+        }
+
+        function statusChipClass(code) {
+            const c = (code || "").toLowerCase();
+            if (c.includes("error")) return "chip-error";
+            if (c.includes("timeout")) return "chip-timeout";
+            if (c.includes("process") || c.includes("dispatch")) return "chip-processing";
+            if (c.includes("connected")) return "chip-connected";
+            if (c.includes("standalone")) return "chip-standalone";
+            return "chip-idle";
+        }
+
+        function renderStatus(status) {
+            const chip = document.getElementById("status-chip");
+            const meta = document.getElementById("status-meta");
+            const label = status?.label || "Waiting";
+            chip.className = "status-chip " + statusChipClass(status?.code || "");
+            chip.textContent = label;
+
+            const detail = status?.detail ? JSON.stringify(status.detail) : "";
+            const cmd = status?.command ? `\nCommand: ${status.command}` : "";
+            const updated = status?.updated_at ? `\nUpdated: ${status.updated_at}` : "";
+            meta.textContent = `${status?.code || "idle"}${detail ? "\nDetail: " + detail : ""}${cmd}${updated}`;
+        }
+
+        function metric(id, value) {
+            document.getElementById(id).textContent = value;
+        }
+
+        function barRow(label, value, total, cls) {
+            const pct = total > 0 ? Math.max(0, Math.min(100, (value / total) * 100)) : 0;
+            return `
+                <div class="bar-row">
+                    <span>${esc(label)}</span>
+                    <div class="bar-track"><div class="bar-fill ${cls}" style="width:${pct.toFixed(1)}%"></div></div>
+                    <span>${value}</span>
+                </div>
+            `;
+        }
+
+        function renderSummary(summary) {
+            const commands = Number(summary?.commands_attempted || 0);
+            const success = Number(summary?.commands_succeeded || 0);
+            const errors = Number(summary?.errors_total || 0);
+            const successRate = commands > 0 ? ((success / commands) * 100) : 0;
+            const llmAvg = Number(summary?.llm_latency_avg_ms || 0);
+
+            metric("metric-commands", String(commands));
+            metric("metric-errors", String(errors));
+            metric("metric-rate", `${successRate.toFixed(2)}%`);
+            metric("metric-latency", `${llmAvg.toFixed(1)} ms`);
+
+            const bars = document.getElementById("summary-bars");
+            bars.innerHTML = [
+                barRow("Success", success, Math.max(1, commands), "fill-ok"),
+                barRow("Game ERR", Number(summary?.game_errors || 0), Math.max(1, commands), "fill-err"),
+                barRow("Timeout", Number(summary?.timeouts || 0), Math.max(1, commands), "fill-warn"),
+                barRow("Provider ERR", Number(summary?.provider_errors || 0), Math.max(1, errors), "fill-info"),
+                barRow("Command Errors", Number(summary?.command_errors || 0), Math.max(1, commands), "fill-err"),
+            ].join("");
+        }
+
+        function classificationOptions(selected) {
+            const options = ["unknown", "llm", "game", "bridge", "admin", "validation"];
+            return options.map(option => {
+                const sel = option === (selected || "unknown") ? "selected" : "";
+                return `<option value="${esc(option)}" ${sel}>${esc(option)}</option>`;
+            }).join("");
+        }
+
+        function renderErrors(errors) {
+            const container = document.getElementById("errors");
+            const items = Array.isArray(errors) ? [...errors] : [];
+            items.sort((a, b) => new Date(b.last_seen || 0) - new Date(a.last_seen || 0));
+
+            if (!items.length) {
+                container.innerHTML = '<div class="empty">No errors recorded for this session.</div>';
+                return;
+            }
+
+            container.innerHTML = items.map(item => {
+                const signature = item.signature || "";
+                const classification = item.classification || "unknown";
+                const source = item.source_guess || "unknown";
+                const count = Number(item.count || 0);
+                const message = item.message || item.sample?.message || item.sample?.error || item.sample?.detail || "";
+                const lastSeen = item.last_seen ? new Date(item.last_seen).toLocaleString() : "n/a";
+                return `
+                    <div class="error-item">
+                        <div class="error-head">
+                            <span>${esc(signature)}</span>
+                            <span>${esc(source)} • ${count} • ${esc(lastSeen)}</span>
+                        </div>
+                        <div class="error-body">
+                            <div class="error-row">
+                                <div class="detail">${esc(message)}</div>
+                                <select data-signature="${esc(signature)}">${classificationOptions(classification)}</select>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        function renderLogs(interactions) {
+            const container = document.getElementById("logs");
+            const logs = Array.isArray(interactions) ? [...interactions] : [];
+            logs.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+
+            if (!logs.length) {
+                container.innerHTML = '<div class="empty">No interactions logged for this session.</div>';
+                return;
+            }
+
+            container.innerHTML = logs.map((log, idx) => {
+                const ts = log.timestamp ? new Date(log.timestamp).toLocaleString() : "n/a";
+                const model = log.model || "unknown";
+                const latency = Number.isFinite(log.latency_ms) ? `${log.latency_ms} ms` : "n/a";
+                const prompt = typeof log.prompt === "string" ? log.prompt : JSON.stringify(log.prompt || "", null, 2);
+                const response = typeof log.response === "string" ? log.response : JSON.stringify(log.response || "", null, 2);
+                const reasoning = typeof log.reasoning === "string" ? log.reasoning : JSON.stringify(log.reasoning || "", null, 2);
+
+                return `
+                    <div class="log-item">
+                        <div class="log-head">
+                            <span>${esc(ts)}</span>
+                            <span>${esc(model)}</span>
+                            <span>${esc(latency)}</span>
+                        </div>
+                        <div class="log-body">
+                            <details ${idx === 0 ? "open" : ""}><summary>Prompt</summary><pre>${esc(prompt)}</pre></details>
+                            <details ${idx === 0 ? "open" : ""}><summary>Response</summary><pre>${esc(response)}</pre></details>
+                            ${reasoning ? `<details><summary>Reasoning</summary><pre>${esc(reasoning)}</pre></details>` : ""}
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        function rebuildSessionSelect() {
+            const select = document.getElementById("session-select");
+            const sessions = state.sessionsIndex || [];
+
+            if (!sessions.length) {
+                select.innerHTML = '<option value="">No sessions found</option>';
+                state.selectedSessionId = null;
+                return;
+            }
+
+            const options = sessions
+                .slice()
+                .sort((a, b) => new Date(b.started_at || 0) - new Date(a.started_at || 0))
+                .map(s => {
+                    const id = s.session_id;
+                    const started = s.started_at ? new Date(s.started_at).toLocaleString() : "n/a";
+                    const selected = id === state.selectedSessionId ? "selected" : "";
+                    const mode = s.mode || "unknown";
+                    return `<option value="${esc(id)}" ${selected}>${esc(id)} (${esc(mode)} | ${esc(started)})</option>`;
+                });
+
+            select.innerHTML = options.join("");
+
+            if (!state.selectedSessionId || !sessions.find(s => s.session_id === state.selectedSessionId)) {
+                state.selectedSessionId = state.currentSessionId || sessions[0].session_id;
+                select.value = state.selectedSessionId;
+            }
+        }
+
+        async function loadSessionsIndex() {
+            const index = await fetchJson("/sessions/index.json", { sessions: [], current_session_id: null });
+            state.sessionsIndex = Array.isArray(index?.sessions) ? index.sessions : [];
+            state.currentSessionId = index?.current_session_id || null;
+            if (!state.selectedSessionId) {
+                state.selectedSessionId = state.currentSessionId;
+            }
+            rebuildSessionSelect();
+        }
+
+        async function loadLiveStatus() {
+            const status = await fetchJson("/api/status", {});
+            renderStatus(status || {});
+        }
+
+        async function loadSelectedSessionData() {
+            const saveButton = document.getElementById("error-save");
+            if (!state.selectedSessionId) {
+                renderSummary({});
+                renderLogs([]);
+                renderErrors([]);
+                saveButton.disabled = true;
+                return;
+            }
+
+            const sid = state.selectedSessionId;
+            const [summary, interactions, errors] = await Promise.all([
+                fetchJson(`/sessions/${encodeURIComponent(sid)}/summary.json`, {}),
+                fetchJson(`/sessions/${encodeURIComponent(sid)}/interactions.json`, []),
+                fetchJson(`/sessions/${encodeURIComponent(sid)}/errors.json`, []),
+            ]);
+
+            renderSummary(summary || {});
+            renderLogs(interactions || []);
+            renderErrors(errors || []);
+            saveButton.disabled = state.currentSessionId && sid !== state.currentSessionId;
+        }
+
+        async function loadSettings() {
+            const data = await fetchJson("/api/settings", {});
+            document.getElementById("model-input").value = data?.model || "";
+            document.getElementById("api-env-input").value = data?.api_key_env || "";
+            document.getElementById("settings-msg").textContent = "";
+        }
+
+        async function saveSettings() {
+            const model = document.getElementById("model-input").value.trim();
+            const apiKeyEnv = document.getElementById("api-env-input").value.trim();
+            const msg = document.getElementById("settings-msg");
+            msg.textContent = "Saving...";
+
+            try {
+                const res = await fetch("/api/settings", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ model: model, api_key_env: apiKeyEnv }),
+                });
+                const body = await res.json();
+                if (!res.ok) {
+                    msg.textContent = body?.error || "Failed to save settings.";
+                    return;
+                }
+                msg.textContent = `Saved. Active model: ${body.model}`;
+            } catch {
+                msg.textContent = "Failed to save settings.";
+            }
+        }
+
+        async function saveErrorClassifications() {
+            if (state.selectedSessionId && state.currentSessionId && state.selectedSessionId !== state.currentSessionId) {
+                return;
+            }
+            const container = document.getElementById("errors");
+            const selects = container.querySelectorAll("select[data-signature]");
+            const classifications = {};
+            selects.forEach(select => {
+                const signature = select.getAttribute("data-signature");
+                if (signature) {
+                    classifications[signature] = select.value;
+                }
+            });
+
+            try {
+                const res = await fetch("/api/errors/classify", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ classifications }),
+                });
+                if (!res.ok) {
+                    return;
+                }
+                await loadSelectedSessionData();
+            } catch {
+                return;
+            }
+        }
+
+        async function refreshAll() {
+            await loadSessionsIndex();
+            await Promise.all([
+                loadLiveStatus(),
+                loadSelectedSessionData(),
+            ]);
+        }
+
+        function setupRefreshLoop() {
+            const auto = document.getElementById("auto-refresh");
+            if (state.refreshTimer) {
+                clearInterval(state.refreshTimer);
+                state.refreshTimer = null;
+            }
+            if (auto.checked) {
+                state.refreshTimer = setInterval(() => {
+                    refreshAll();
+                }, 1000);
+            }
+        }
+
+        document.getElementById("refresh-btn").addEventListener("click", refreshAll);
+        document.getElementById("auto-refresh").addEventListener("change", setupRefreshLoop);
+        document.getElementById("session-select").addEventListener("change", async (e) => {
+            state.selectedSessionId = e.target.value || null;
+            await loadSelectedSessionData();
+        });
+        document.getElementById("jump-current").addEventListener("click", async () => {
+            await loadSessionsIndex();
+            if (state.currentSessionId) {
+                state.selectedSessionId = state.currentSessionId;
+                document.getElementById("session-select").value = state.currentSessionId;
+                await loadSelectedSessionData();
+            }
+        });
+        document.getElementById("settings-reload").addEventListener("click", loadSettings);
+        document.getElementById("settings-save").addEventListener("click", saveSettings);
+        document.getElementById("error-save").addEventListener("click", saveErrorClassifications);
+
+        (async function init() {
+            await loadSettings();
+            await refreshAll();
+            setupRefreshLoop();
+        })();
+    </script>
+</body>
+</html>
