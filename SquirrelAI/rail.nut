@@ -171,7 +171,7 @@ function SquirrelAI::BuildRailRoute(from_str, to_str, eng_id, wagons_str) {
         AILog.Info("Could not build depot near station A, trying station B...");
         local stB_dir = ("direction" in stB_result) ? stB_result.direction : build_direction;
         depot = this.BuildDepotNearStation(stB_tile, platform_len, stB_dir);
-        
+
         if (depot == -1) {
             AILog.Info("Could not build depot near station B, trying somewhere on the route...");
             depot = this._BuildDepotSomewhereOnRoute(stA_tile, stB_tile);
@@ -604,6 +604,8 @@ function SquirrelAI::_IsDepotConnectedToRail(depot_tile) {
     local fy = AIMap.GetTileY(front);
 
     local connected = [];
+    local has_straight_continuation = false;
+    local continuing_branches = 0;
     foreach (off in [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         local adj = AIMap.GetTileIndex(fx + off[0], fy + off[1]);
         if (!AIMap.IsValidTile(adj)) continue;
@@ -613,28 +615,38 @@ function SquirrelAI::_IsDepotConnectedToRail(depot_tile) {
 
         if (!AIRail.AreTilesConnected(adj, front, depot_tile)) continue;
         connected.push(adj);
-    }
 
-    if (connected.len() == 0) return false;
-
-    // Accept this depot side only if at least one front->adj branch continues
-    // straight for one more tile (single bend only, no immediate double-bend).
-    foreach (adj in connected) {
         local ax = AIMap.GetTileX(adj);
         local ay = AIMap.GetTileY(adj);
         local dir_x = ax - fx;
         local dir_y = ay - fy;
 
-        local next = AIMap.GetTileIndex(ax + dir_x, ay + dir_y);
-        if (!AIMap.IsValidTile(next)) continue;
-        if (!AIRail.IsRailTile(next) && !AIRail.IsRailStationTile(next)) continue;
-        if (!AIRail.AreTilesConnected(next, adj, front)) continue;
-        return true;
+        local branch_continues = false;
+        foreach (next_off in [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            local next = AIMap.GetTileIndex(ax + next_off[0], ay + next_off[1]);
+            if (!AIMap.IsValidTile(next)) continue;
+            if (next == front || next == depot_tile) continue;
+            if (AIRail.IsRailDepotTile(next)) continue;
+            if (!AIRail.IsRailTile(next) && !AIRail.IsRailStationTile(next)) continue;
+            if (!AIRail.AreTilesConnected(next, adj, front)) continue;
+
+            branch_continues = true;
+            if (next_off[0] == dir_x && next_off[1] == dir_y) {
+                has_straight_continuation = true;
+            }
+        }
+
+        if (branch_continues) {
+            continuing_branches++;
+        }
     }
 
-    // If every option at the front would cause an immediate second bend,
-    // reject this side so caller can try the opposite side.
-    return false;
+    if (connected.len() == 0) return false;
+
+    // A single branch must continue straight long enough to avoid the
+    // immediate double-turn pattern that can trap trains leaving the depot.
+    // With two or more continuing branches, the front tile is a usable Y/junction.
+    return has_straight_continuation || continuing_branches >= 2;
 }
 
 function SquirrelAI::_ConnectDepotCandidate(depot_tile, exit_tile, st_end_tile, far_tile) {
@@ -676,20 +688,20 @@ function SquirrelAI::_ConnectDepotCandidate(depot_tile, exit_tile, st_end_tile, 
 function SquirrelAI::_BuildDepotSomewhereOnRoute(stA_tile, stB_tile) {
     local dist = AIMap.DistanceManhattan(stA_tile, stB_tile);
     if (dist <= 10) return -1;
-    
+
     // Check at 1/4, 1/2, 3/4 along the way
     local ax = AIMap.GetTileX(stA_tile);
     local ay = AIMap.GetTileY(stA_tile);
     local bx = AIMap.GetTileX(stB_tile);
     local by = AIMap.GetTileY(stB_tile);
-    
+
     local fractions = [0.5, 0.25, 0.75, 0.125, 0.875];
     foreach(f in fractions) {
         local cx = ax + ((bx - ax) * f).tointeger();
         local cy = ay + ((by - ay) * f).tointeger();
         local center_tile = AIMap.GetTileIndex(cx, cy);
         if (!AIMap.IsValidTile(center_tile)) continue;
-        
+
         local depot = this._TryBuildDepotOnConnectedRail(center_tile, 10, -1);
         if (depot != -1) return depot;
     }
