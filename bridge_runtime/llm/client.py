@@ -57,6 +57,12 @@ def _extract_reasoning_text(response_json: dict) -> str:
         if isinstance(candidate, str) and candidate.strip():
             reasoning_parts.append(candidate.strip())
 
+    for detail in _extract_reasoning_details(response_json):
+        detail_type = str(detail.get("type") or "reasoning_details")
+        txt = detail.get("text") or detail.get("summary") or detail.get("content")
+        if isinstance(txt, str) and txt.strip():
+            reasoning_parts.append(f"[{detail_type}] {txt.strip()}")
+
     # Some APIs return an array of content blocks including reasoning blocks.
     content = msg.get("content")
     if isinstance(content, list):
@@ -78,6 +84,74 @@ def _extract_reasoning_text(response_json: dict) -> str:
                 reasoning_parts.append(f"[google_thought_signature] {thought_sig.strip()}")
 
     return "\n\n".join(reasoning_parts)
+
+
+def _extract_reasoning_details(response_json: dict) -> list[dict]:
+    """Return structured reasoning_details blocks, if present."""
+    choices = response_json.get("choices", [])
+    if not choices:
+        return []
+
+    choice0 = choices[0] if isinstance(choices[0], dict) else {}
+    msg = choice0.get("message", {}) if isinstance(choice0, dict) else {}
+
+    details: list[dict] = []
+    for candidate in (
+        msg.get("reasoning_details"),
+        choice0.get("reasoning_details"),
+        response_json.get("reasoning_details"),
+    ):
+        if isinstance(candidate, list):
+            details.extend(item for item in candidate if isinstance(item, dict))
+
+    return details
+
+
+def _extract_reasoning_meta(response_json: dict, sent_payload: dict | None = None) -> dict:
+    """Summarize reasoning metadata without copying encrypted provider payloads."""
+    details = _extract_reasoning_details(response_json)
+    usage = response_json.get("usage", {})
+    completion_details = {}
+    if isinstance(usage, dict):
+        completion_details = usage.get("completion_tokens_details", {}) or {}
+
+    text_blocks = 0
+    summary_blocks = 0
+    encrypted_blocks = 0
+    types_seen: set[str] = set()
+    formats_seen: set[str] = set()
+
+    for detail in details:
+        detail_type = str(detail.get("type") or "")
+        detail_format = str(detail.get("format") or "")
+        if detail_type:
+            types_seen.add(detail_type)
+        if detail_format:
+            formats_seen.add(detail_format)
+
+        has_text = isinstance(detail.get("text"), str) and bool(detail.get("text").strip())
+        has_summary = isinstance(detail.get("summary"), str) and bool(detail.get("summary").strip())
+        if has_text:
+            text_blocks += 1
+        if has_summary:
+            summary_blocks += 1
+        if detail_type == "reasoning.encrypted" or (
+            isinstance(detail.get("data"), str) and not has_text and not has_summary
+        ):
+            encrypted_blocks += 1
+
+    return {
+        "reasoning_requested": isinstance((sent_payload or {}).get("reasoning"), dict),
+        "request_reasoning": (sent_payload or {}).get("reasoning"),
+        "request_max_tokens": (sent_payload or {}).get("max_tokens"),
+        "reasoning_tokens": completion_details.get("reasoning_tokens"),
+        "reasoning_details_count": len(details),
+        "reasoning_details_types": sorted(types_seen),
+        "reasoning_details_formats": sorted(formats_seen),
+        "reasoning_text_blocks": text_blocks,
+        "reasoning_summary_blocks": summary_blocks,
+        "reasoning_encrypted_blocks": encrypted_blocks,
+    }
 
 
 def _build_chat_completions_url(base_url: str) -> str:
@@ -143,6 +217,57 @@ def _coerce_positive_int(value: object) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None
+
+
+def _coerce_reasoning_effort(value: object) -> str:
+    """Return an OpenRouter/OpenAI-style reasoning effort level."""
+    effort = str(value or "").strip().lower()
+    if effort in {"xhigh", "high", "medium", "low", "minimal", "none"}:
+        return effort
+    return "high"
+
+
+def _build_reasoning_payload(llm_url: str, model: str) -> dict | None:
+    """Build provider-compatible reasoning options for OpenAI-compatible APIs."""
+    if not getattr(config, "LLM_REASONING_ENABLED", False):
+        return None
+
+    # Google's OpenAI-compatible endpoint does not use OpenRouter's reasoning
+    # object. Native Gemini calls use ThinkingConfig in _call_gemini_native().
+    if "generativelanguage.googleapis.com" in llm_url:
+        return None
+
+    if "openrouter.ai" in llm_url.lower():
+        budget = _coerce_positive_int(getattr(config, "LLM_REASONING_BUDGET", None))
+        reasoning: dict = {"exclude": False}
+        if budget is not None:
+            # OpenRouter maps max_tokens to native budgets where supported and
+            # to effort levels for effort-only models.
+            reasoning["max_tokens"] = budget
+        else:
+            reasoning["effort"] = _coerce_reasoning_effort(
+                getattr(config, "LLM_REASONING_EFFORT", "high")
+            )
+        return reasoning
+
+    # Generic OpenAI-compatible providers may not understand effort/max_tokens,
+    # but many accept the simpler OpenRouter-compatible enable flag.
+    return {"enabled": True, "exclude": False}
+
+
+def _reasoning_completion_token_cap(model: str, reasoning_payload: dict | None) -> int | None:
+    """Ensure Anthropic has final-answer tokens left after the reasoning budget."""
+    if not reasoning_payload or not str(model).lower().startswith("anthropic/"):
+        return None
+
+    budget = _coerce_positive_int(reasoning_payload.get("max_tokens"))
+    if budget is not None:
+        return max(budget + 1024, int(budget * 1.25))
+
+    # With effort-based Anthropic reasoning, OpenRouter derives the thinking
+    # budget from max_tokens. A modest cap is enough for our compact JSON output
+    # and prevents the budget from collapsing against a tiny provider default.
+    return 4096
 
 
 def log_interaction(entry: dict):
@@ -413,9 +538,12 @@ def call(game_state: GameState) -> list[Decision]:
         "temperature": 0.2,
     }
 
-    # Ensure we do not send the specialized reasoning payload to Google's OpenAI API compatible endpoint
-    if getattr(config, "LLM_REASONING_ENABLED", False) and "generativelanguage.googleapis.com" not in llm_url:
-        payload["reasoning"] = {"enabled": True}
+    reasoning_payload = _build_reasoning_payload(llm_url, config.LLM_MODEL)
+    if reasoning_payload is not None:
+        payload["reasoning"] = reasoning_payload
+        completion_cap = _reasoning_completion_token_cap(config.LLM_MODEL, reasoning_payload)
+        if completion_cap is not None:
+            payload.setdefault("max_tokens", completion_cap)
 
     headers = {}
     if getattr(config, "LLM_API_KEY", ""):
@@ -544,6 +672,7 @@ def call(game_state: GameState) -> list[Decision]:
         "prompt": json.dumps(sent_payload["messages"], indent=2),
         "response": content,
         "reasoning": reasoning_text,
+        "reasoning_meta": _extract_reasoning_meta(response_json, sent_payload),
         "usage": response_json.get("usage", {}),
         # Keep raw provider payload for debugging parser/dash issues.
         "raw_response": response_json,
